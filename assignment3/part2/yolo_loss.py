@@ -58,6 +58,7 @@ class YoloLoss(nn.Module):
         x1, y1 = x/S - 0.5*w, y/S - 0.5*h ; x2,y2 = x/S + 0.5*w, y/S + 0.5*h
         Note: Over here initially x, y are the center of the box and w,h are width and height.
         """
+        #TODO:
         ### CODE ###
         # Your code here
 
@@ -70,7 +71,7 @@ class YoloLoss(nn.Module):
         box_target : (tensor)  size (-1, 4)
 
         Returns:
-        best_iou: (tensor) size (-1, 1)
+        best_ious: (tensor) size (-1, 1)
         best_boxes : (tensor) size (-1, 5), containing the boxes which give the best iou among the two (self.B) predictions
 
         Hints:
@@ -80,9 +81,10 @@ class YoloLoss(nn.Module):
         Note: Over here initially x, y are the center of the box and w,h are width and height.
         We perform this transformation to convert the correct coordinates into bounding box coordinates.
         """
-
+        #TODO:
         ### CODE ###
         # Your code here
+
         return best_ious, best_boxes
 
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):
@@ -172,29 +174,40 @@ class YoloLoss(nn.Module):
         # split the pred tensor from an entity to separate tensors:
         # -- pred_boxes_list: a list containing all bbox prediction (list) [(tensor) size (N, S, S, 5)  for B pred_boxes]
         # -- pred_cls (containing all classification prediction)
-
-        # compcute classification loss
-
+        pred_boxes_list = []
+        for b in range(self.B):
+            start = 0; end = 4
+            pred_boxes_list.append(pred_tensor[:,:,:,start:end])
+            start += 5; end += 5
+        pred_cls = pred_tensor[:,:,:,self.B*5:29]
+        # compute classification loss
+        class_loss = self.get_class_prediction_loss(pred_cls, target_cls, has_object_map)
         # compute no-object loss
-
+        noobj_loss = self.get_no_object_loss(pred_boxes_list, has_object_map)
         # Re-shape boxes in pred_boxes_list and target_boxes to meet the following desires
         # 1) only keep having-object cells
         # 2) vectorize all dimensions except for the last one for faster computation
+        pred_boxes_list = [box*has_object_map for box in pred_boxes_list]
+        pred_boxes_list = [torch.reshape(box, (-1, 5)) for box in pred_boxes_list]
+        target_boxes = target_boxes * has_object_map
+        torch.reshape(target_boxes, (-1, 4))
 
         # find the best boxes among the 2 (or self.B) predicted boxes and the corresponding iou
-
+        best_ious, best_boxes = self.find_best_iou_boxes(pred_boxes_list, target_boxes)
         # compute regression loss between the found best bbox and GT bbox for all the cell containing objects
-
+        reg_loss = self.get_regression_loss(best_boxes, target_boxes)
         # compute contain_object_loss
-
+        obj_loss = self.get_contain_conf_loss(best_ious, )
         # compute final loss
-
+        total_loss = class_loss + noobj_loss + reg_loss + obj_loss
         # construct return loss_dict
         loss_dict = dict(
-            total_loss=...,
-            reg_loss=...,
-            containing_obj_loss=...,
-            no_obj_loss=...,
-            cls_loss=...,
+            total_loss= total_loss,
+            reg_loss= reg_loss,
+            containing_obj_loss=obj_loss,
+            no_obj_loss=noobj_loss,
+            cls_loss=class_loss,
         )
         return loss_dict
+
+
