@@ -98,7 +98,7 @@ class YoloLoss(nn.Module):
         iou_1 = compute_iou(box_1, target_box)
         iou_2 = compute_iou(box_2, target_box)
 
-        if iou_1 >= iou_2:
+        if torch.max(iou_1, iou_2) == iou_1:
             return iou_1, box_1
         else:
             return iou_2, box_2
