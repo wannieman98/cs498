@@ -45,6 +45,7 @@ class YoloLoss(nn.Module):
         self.B = B
         self.l_coord = l_coord
         self.l_noobj = l_noobj
+        self.mse = nn.MSELoss(reduction= "sum")
 
     def xywh2xyxy(self, boxes):
         """
@@ -61,6 +62,12 @@ class YoloLoss(nn.Module):
         #TODO:
         ### CODE ###
         # Your code here
+        x1 = torch.subtract(torch.divide(boxes[:,0], self.S), torch.mul(boxes[:,2], 0.5))
+        x2 = torch.subtract(torch.divide(boxes[:,0], self.S), torch.mul(boxes[:,2], 0.5))
+        y1 = torch.subtract(torch.divide(boxes[:,1], self.S), torch.mul(boxes[:,3], 0.5))
+        y2 = torch.subtract(torch.divide(boxes[:,1], self.S), torch.mul(boxes[:,3], 0.5))
+        boxes[:,0] = x1; boxes[:,1] = x2
+        boxes[:,2] = y1; boxes[:,2] = y2
 
         return boxes
 
@@ -84,8 +91,16 @@ class YoloLoss(nn.Module):
         #TODO:
         ### CODE ###
         # Your code here
+        box_1 = self.xywh2xyxy(pred_box_list[0])
+        box_2 = self.xywh2xyxy(pred_box_list[1])
+        target_box = self.xywh2xyxy(box_target)
+        iou_1 = compute_iou(box_1, target_box)
+        iou_2 = compute_iou(box_2, target_box)
 
-        return best_ious, best_boxes
+        if iou_1 >= iou_2:
+            return iou_1, box_1
+        else:
+            return iou_2, box_2
 
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):
         """
@@ -98,8 +113,9 @@ class YoloLoss(nn.Module):
         class_loss : scalar
         """
         ### CODE ###
-        # Your code here
-        return loss
+        # Your code 
+        print(self.mse(torch.flatten(classes_pred[has_object_map], end_dim=-2,), torch.flatten(classes_target[has_object_map], end_dim=-2,)))
+        return self.mse(torch.flatten(classes_pred[has_object_map], end_dim=-2,), torch.flatten(classes_target[has_object_map], end_dim=-2,))
 
     def get_no_object_loss(self, pred_boxes_list, has_object_map):
         """
@@ -117,6 +133,10 @@ class YoloLoss(nn.Module):
         """
         ### CODE ###
         # Your code here
+        loss = 0
+        for box in pred_boxes_list:
+            loss += torch.sum(torch.square(torch.flatten(box[has_object_map], start_dim=1)))
+            print(loss)
 
         return loss
 
@@ -170,16 +190,15 @@ class YoloLoss(nn.Module):
         """
         N = pred_tensor.size(0)
         total_loss = 0.0
-
         # split the pred tensor from an entity to separate tensors:
         # -- pred_boxes_list: a list containing all bbox prediction (list) [(tensor) size (N, S, S, 5)  for B pred_boxes]
         # -- pred_cls (containing all classification prediction)
         pred_boxes_list = []
-        for b in range(self.B):
-            start = 0; end = 4
+        for B in range(self.B):
+            start = 0; end = 5
             pred_boxes_list.append(pred_tensor[:,:,:,start:end])
             start += 5; end += 5
-        pred_cls = pred_tensor[:,:,:,self.B*5:29]
+        pred_cls = pred_tensor[:,:,:,self.B*5:30]
         # compute classification loss
         class_loss = self.get_class_prediction_loss(pred_cls, target_cls, has_object_map)
         # compute no-object loss
@@ -187,11 +206,11 @@ class YoloLoss(nn.Module):
         # Re-shape boxes in pred_boxes_list and target_boxes to meet the following desires
         # 1) only keep having-object cells
         # 2) vectorize all dimensions except for the last one for faster computation
-        pred_boxes_list = [box*has_object_map for box in pred_boxes_list]
-        pred_boxes_list = [torch.reshape(box, (-1, 5)) for box in pred_boxes_list]
-        target_boxes = target_boxes * has_object_map
+        for box in pred_boxes_list:
+            box = box[has_object_map]
+            torch.reshape(box, (-1,5))
+        target_boxes = torch.flatten(target_boxes[has_object_map], end_dim=-2)
         torch.reshape(target_boxes, (-1, 4))
-
         # find the best boxes among the 2 (or self.B) predicted boxes and the corresponding iou
         best_ious, best_boxes = self.find_best_iou_boxes(pred_boxes_list, target_boxes)
         # compute regression loss between the found best bbox and GT bbox for all the cell containing objects
