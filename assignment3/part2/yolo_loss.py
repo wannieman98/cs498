@@ -62,6 +62,7 @@ class YoloLoss(nn.Module):
         #TODO:
         ### CODE ###
         # Your code here
+        print(boxes.shape)
         x1 = torch.subtract(torch.divide(boxes[:,0], self.S), torch.mul(boxes[:,2], 0.5))
         x2 = torch.subtract(torch.divide(boxes[:,0], self.S), torch.mul(boxes[:,2], 0.5))
         y1 = torch.subtract(torch.divide(boxes[:,1], self.S), torch.mul(boxes[:,3], 0.5))
@@ -91,8 +92,8 @@ class YoloLoss(nn.Module):
         #TODO:
         ### CODE ###
         # Your code here
-        box_1 = self.xywh2xyxy(pred_box_list[0])
-        box_2 = self.xywh2xyxy(pred_box_list[1])
+        box_1 = self.xywh2xyxy(pred_box_list[0][:,:-1])
+        box_2 = self.xywh2xyxy(pred_box_list[1][:,:-1])
         target_box = self.xywh2xyxy(box_target)
         iou_1 = compute_iou(box_1, target_box)
         iou_2 = compute_iou(box_2, target_box)
@@ -114,7 +115,6 @@ class YoloLoss(nn.Module):
         """
         ### CODE ###
         # Your code 
-        print(self.mse(torch.flatten(classes_pred[has_object_map], end_dim=-2,), torch.flatten(classes_target[has_object_map], end_dim=-2,)))
         return self.mse(torch.flatten(classes_pred[has_object_map], end_dim=-2,), torch.flatten(classes_target[has_object_map], end_dim=-2,))
 
     def get_no_object_loss(self, pred_boxes_list, has_object_map):
@@ -136,7 +136,6 @@ class YoloLoss(nn.Module):
         loss = 0
         for box in pred_boxes_list:
             loss += torch.sum(torch.square(torch.flatten(box[has_object_map], start_dim=1)))
-            print(loss)
 
         return loss
 
@@ -206,14 +205,15 @@ class YoloLoss(nn.Module):
         # Re-shape boxes in pred_boxes_list and target_boxes to meet the following desires
         # 1) only keep having-object cells
         # 2) vectorize all dimensions except for the last one for faster computation
-        for box in pred_boxes_list:
-            box = box[has_object_map]
-            torch.reshape(box, (-1,5))
-        target_boxes = torch.flatten(target_boxes[has_object_map], end_dim=-2)
-        torch.reshape(target_boxes, (-1, 4))
+        for index in range(len(pred_boxes_list)):
+            pred_boxes_list[index] = pred_boxes_list[index][has_object_map]
+            torch.reshape(pred_boxes_list[index], (-1,5))
+        target_boxes = target_boxes[has_object_map]
+        target_boxes = torch.reshape(target_boxes, (-1, 4))
         # find the best boxes among the 2 (or self.B) predicted boxes and the corresponding iou
         best_ious, best_boxes = self.find_best_iou_boxes(pred_boxes_list, target_boxes)
         # compute regression loss between the found best bbox and GT bbox for all the cell containing objects
+        print("so far")
         reg_loss = self.get_regression_loss(best_boxes, target_boxes)
         # compute contain_object_loss
         obj_loss = self.get_contain_conf_loss(best_ious, )
