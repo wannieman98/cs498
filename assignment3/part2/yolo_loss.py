@@ -59,18 +59,15 @@ class YoloLoss(nn.Module):
         x1, y1 = x/S - 0.5*w, y/S - 0.5*h ; x2,y2 = x/S + 0.5*w, y/S + 0.5*h
         Note: Over here initially x, y are the center of the box and w,h are width and height.
         """
-        #TODO:
         ### CODE ###
         # Your code here
-        print(boxes.shape)
-        x1 = torch.subtract(torch.divide(boxes[:,0], self.S), torch.mul(boxes[:,2], 0.5))
-        x2 = torch.subtract(torch.divide(boxes[:,0], self.S), torch.mul(boxes[:,2], 0.5))
-        y1 = torch.subtract(torch.divide(boxes[:,1], self.S), torch.mul(boxes[:,3], 0.5))
-        y2 = torch.subtract(torch.divide(boxes[:,1], self.S), torch.mul(boxes[:,3], 0.5))
-        boxes[:,0] = x1; boxes[:,1] = x2
-        boxes[:,2] = y1; boxes[:,2] = y2
+        copy_of_box = boxes
+        x1_y1 = boxes[:,:2]/self.S - boxes[:,2:4]*0.5
+        x2_y2 = boxes[:,:2]/self.S + boxes[:,2:4]*0.5
+        copy_of_box[:,:2] = x1_y1
+        copy_of_box[:,2:4] = x2_y2
 
-        return boxes
+        return copy_of_box
 
     def find_best_iou_boxes(self, pred_box_list, box_target):
         """
@@ -89,19 +86,24 @@ class YoloLoss(nn.Module):
         Note: Over here initially x, y are the center of the box and w,h are width and height.
         We perform this transformation to convert the correct coordinates into bounding box coordinates.
         """
-        #TODO:
-        ### CODE ###
+        ## CODE ###
         # Your code here
-        box_1 = self.xywh2xyxy(pred_box_list[0][:,:-1])
-        box_2 = self.xywh2xyxy(pred_box_list[1][:,:-1])
+        box_1 = self.xywh2xyxy(pred_box_list[0][:,0:4])
+        box_2 = self.xywh2xyxy(pred_box_list[1][:,0:4])
         target_box = self.xywh2xyxy(box_target)
         iou_1 = compute_iou(box_1, target_box)
         iou_2 = compute_iou(box_2, target_box)
 
-        if torch.max(iou_1, iou_2) == iou_1:
-            return iou_1, box_1
+        iou_1 = torch.reshape(torch.diagonal(iou_1, 0), (-1, 1))
+        iou_2 = torch.reshape(torch.diagonal(iou_2, 0), (-1, 1))
+
+        iou_1_val = torch.max(iou_1)
+        iou_2_val = torch.max(iou_2)
+
+        if iou_1_val > iou_2_val:
+            return torch.detach(iou_1), pred_box_list[0]
         else:
-            return iou_2, box_2
+            return torch.detach(iou_2), pred_box_list[1]
 
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):
         """
@@ -115,7 +117,9 @@ class YoloLoss(nn.Module):
         """
         ### CODE ###
         # Your code 
-        return self.mse(torch.flatten(classes_pred[has_object_map], end_dim=-2,), torch.flatten(classes_target[has_object_map], end_dim=-2,))
+        input_ = classes_pred[has_object_map]
+        target = classes_target[has_object_map]
+        return self.mse(target, input_)
 
     def get_no_object_loss(self, pred_boxes_list, has_object_map):
         """
@@ -154,7 +158,8 @@ class YoloLoss(nn.Module):
         """
         ### CODE
         # your code here
-        return loss
+        box_target_conf = torch.detach(box_target_conf)
+        return self.mse(box_pred_conf, box_target_conf)
 
     def get_regression_loss(self, box_pred_response, box_target_response):
         """
@@ -170,7 +175,15 @@ class YoloLoss(nn.Module):
         """
         ### CODE
         # your code here
-        return reg_loss
+        # print("line: 175")
+        x = self.mse(torch.flatten(box_pred_response[:,0]), torch.flatten(box_target_response[:,0]))
+        y = self.mse(torch.flatten(box_pred_response[:,1]), torch.flatten(box_target_response[:,1]))
+        first_term = (x + y)
+        w = self.mse(torch.sqrt(torch.flatten(box_pred_response[:,2])), torch.sqrt(torch.flatten(box_pred_response[:,2])))
+        h = self.mse(torch.sqrt(torch.flatten(box_pred_response[:,3])), torch.sqrt(torch.flatten(box_pred_response[:,3])))
+        second_term = (w + h)
+
+        return (first_term + second_term)
 
     def forward(self, pred_tensor, target_boxes, target_cls, has_object_map):
         """
@@ -199,9 +212,9 @@ class YoloLoss(nn.Module):
             start += 5; end += 5
         pred_cls = pred_tensor[:,:,:,self.B*5:30]
         # compute classification loss
-        class_loss = self.get_class_prediction_loss(pred_cls, target_cls, has_object_map)
+        class_loss = self.get_class_prediction_loss(pred_cls, target_cls, has_object_map) / N
         # compute no-object loss
-        noobj_loss = self.get_no_object_loss(pred_boxes_list, has_object_map)
+        noobj_loss = self.get_no_object_loss(pred_boxes_list, has_object_map) / N
         # Re-shape boxes in pred_boxes_list and target_boxes to meet the following desires
         # 1) only keep having-object cells
         # 2) vectorize all dimensions except for the last one for faster computation
@@ -213,12 +226,12 @@ class YoloLoss(nn.Module):
         # find the best boxes among the 2 (or self.B) predicted boxes and the corresponding iou
         best_ious, best_boxes = self.find_best_iou_boxes(pred_boxes_list, target_boxes)
         # compute regression loss between the found best bbox and GT bbox for all the cell containing objects
-        print("so far")
-        reg_loss = self.get_regression_loss(best_boxes, target_boxes)
+        reg_loss = self.get_regression_loss(best_boxes[:,0:4], target_boxes) / N
         # compute contain_object_loss
-        obj_loss = self.get_contain_conf_loss(best_ious, )
+        obj_loss = self.get_contain_conf_loss(best_boxes[:,4:5], best_ious) / N
         # compute final loss
-        total_loss = class_loss + noobj_loss + reg_loss + obj_loss
+        total_loss = class_loss + self.l_noobj * noobj_loss + self.l_coord *  reg_loss + obj_loss
+        # print(class_loss, noobj_loss, reg_loss, obj_loss)
         # construct return loss_dict
         loss_dict = dict(
             total_loss= total_loss,
