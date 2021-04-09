@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
-
-
+    
 def compute_iou(box1, box2):
     """Compute the intersection over union of two set of boxes, each box is [x1,y1,x2,y2].
     Args:
@@ -61,13 +60,10 @@ class YoloLoss(nn.Module):
         """
         ### CODE ###
         # Your code here
-        copy_of_box = boxes
-        x1_y1 = boxes[:,:2]/self.S - boxes[:,2:4]*0.5
-        x2_y2 = boxes[:,:2]/self.S + boxes[:,2:4]*0.5
-        copy_of_box[:,:2] = x1_y1
-        copy_of_box[:,2:4] = x2_y2
+        x1_y1 = torch.sub(torch.div(boxes[:,:2], self.S), torch.mul(boxes[:,2:4], 0.5))
+        x2_y2 = torch.add(torch.div(boxes[:,:2], self.S), torch.mul(boxes[:,2:4], 0.5))
 
-        return copy_of_box
+        return torch.cat((x1_y1, x2_y2), dim=1)
 
     def find_best_iou_boxes(self, pred_box_list, box_target):
         """
@@ -88,22 +84,24 @@ class YoloLoss(nn.Module):
         """
         ## CODE ###
         # Your code here
-        box_1 = self.xywh2xyxy(pred_box_list[0][:,0:4])
-        box_2 = self.xywh2xyxy(pred_box_list[1][:,0:4])
-        target_box = self.xywh2xyxy(box_target)
+        assert pred_box_list[0].shape == (-1,5) and box_target.shape == (-1,4), "find_best_iou input dimension incorrect"
+        box_1 = self.xywh2xyxy(torch.flatten(pred_box_list[0][:,0:4], end_dim=-2))
+        box_2 = self.xywh2xyxy(torch.flatten(pred_box_list[1][:,0:4], end_dim=-2))
+        target_box = self.xywh2xyxy(torch.flatten(box_target), 1)
         iou_1 = compute_iou(box_1, target_box)
         iou_2 = compute_iou(box_2, target_box)
 
-        iou_1 = torch.reshape(torch.diagonal(iou_1, 0), (-1, 1))
-        iou_2 = torch.reshape(torch.diagonal(iou_2, 0), (-1, 1))
+        iou_1 = torch.reshape(torch.diagonal(iou_1, 0), (-1,1))
+        iou_2 = torch.reshape(torch.diagonal(iou_2, 0), (-1,1))
 
-        iou_1_val = torch.max(iou_1)
-        iou_2_val = torch.max(iou_2)
+        indicies = torch.argmax(torch.maximum(iou_1, iou_2),1)
 
-        if iou_1_val > iou_2_val:
-            return torch.detach(iou_1), pred_box_list[0]
-        else:
-            return torch.detach(iou_2), pred_box_list[1]
+        temp = torch.cat((pred_box_list[0], pred_box_list[1]), 0)[indicies]
+        temp.requires_grad_(True)
+
+        return torch.detach(torch.reshape(torch.maximum(iou_1, iou_2), (-1,1))), temp
+
+
 
     def get_class_prediction_loss(self, classes_pred, classes_target, has_object_map):
         """
@@ -117,9 +115,10 @@ class YoloLoss(nn.Module):
         """
         ### CODE ###
         # Your code 
+        assert classes_pred.shape == classes_target.shape, "get_class_prediction_loss input dimension incorrect"
         input_ = classes_pred[has_object_map]
         target = classes_target[has_object_map]
-        return self.mse(target, input_)
+        return self.mse(input_, target)
 
     def get_no_object_loss(self, pred_boxes_list, has_object_map):
         """
@@ -137,9 +136,11 @@ class YoloLoss(nn.Module):
         """
         ### CODE ###
         # Your code here
+        assert pred_boxes_list[0].shape == (24, 14, 14, 5), "get_no_object_loss input dimension incorrect"
         loss = 0
         for box in pred_boxes_list:
-            loss += torch.sum(torch.square(torch.flatten(box[has_object_map], start_dim=1)))
+            temp = box[:,:,:,4]
+            loss += torch.sum(torch.square(temp[~has_object_map]))
 
         return loss
 
@@ -158,7 +159,9 @@ class YoloLoss(nn.Module):
         """
         ### CODE
         # your code here
-        box_target_conf = torch.detach(box_target_conf)
+        assert print(box_target_conf.requires_grad) == True, "best_ious not detached"
+        assert box_pred_conf.shape == box_target_conf.shape, "get_contain_conf_loss input dimension incorrect"
+        torch.detach(box_target_conf)
         return self.mse(box_pred_conf, box_target_conf)
 
     def get_regression_loss(self, box_pred_response, box_target_response):
@@ -175,7 +178,7 @@ class YoloLoss(nn.Module):
         """
         ### CODE
         # your code here
-        # print("line: 175")
+        assert box_pred_response.shape == box_target_response.shape, "get_regression_loss input dimension incorrect"
         x = self.mse(torch.flatten(box_pred_response[:,0]), torch.flatten(box_target_response[:,0]))
         y = self.mse(torch.flatten(box_pred_response[:,1]), torch.flatten(box_target_response[:,1]))
         first_term = (x + y)
@@ -205,15 +208,11 @@ class YoloLoss(nn.Module):
         # split the pred tensor from an entity to separate tensors:
         # -- pred_boxes_list: a list containing all bbox prediction (list) [(tensor) size (N, S, S, 5)  for B pred_boxes]
         # -- pred_cls (containing all classification prediction)
-        pred_boxes_list = []
-        for B in range(self.B):
-            start = 0; end = 5
-            pred_boxes_list.append(pred_tensor[:,:,:,start:end])
-            start += 5; end += 5
+        pred_boxes_list = [pred_tensor[:,:,:,0:5], pred_tensor[:,:,:,5:10]]
         pred_cls = pred_tensor[:,:,:,self.B*5:30]
         # compute classification loss
         class_loss = self.get_class_prediction_loss(pred_cls, target_cls, has_object_map) / N
-        # compute no-object loss
+        # compute no-object
         noobj_loss = self.get_no_object_loss(pred_boxes_list, has_object_map) / N
         # Re-shape boxes in pred_boxes_list and target_boxes to meet the following desires
         # 1) only keep having-object cells
@@ -225,6 +224,7 @@ class YoloLoss(nn.Module):
         target_boxes = torch.reshape(target_boxes, (-1, 4))
         # find the best boxes among the 2 (or self.B) predicted boxes and the corresponding iou
         best_ious, best_boxes = self.find_best_iou_boxes(pred_boxes_list, target_boxes)
+        assert print(best_ious.requires_grad) == True, "best_ious not detached"
         # compute regression loss between the found best bbox and GT bbox for all the cell containing objects
         reg_loss = self.get_regression_loss(best_boxes[:,0:4], target_boxes) / N
         # compute contain_object_loss
