@@ -1,1 +1,8 @@
 .DS_Store
+*.pth
+*.docx
+*.csv
+*.sh
+*.json
+*.pth
+assignment3/part2/checkpoints/best_detector.pth
