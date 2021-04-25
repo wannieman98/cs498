@@ -33,13 +33,19 @@ class RNN(nn.Module):
         ####################################
         #          YOUR CODE HERE          #
         ####################################
-
-        
+        self.encoder = nn.Embedding(input_size, hidden_size)
+        if self.model_type == "rnn":
+            self.rnn = nn.RNN(hidden_size, hidden_size, n_layers)
+        elif self.model_type == "gru":
+            self.rnn = nn.GRU(hidden_size, hidden_size, n_layers)
+        else:
+            self.rnn = nn.LSTM(hidden_size, hidden_size, n_layers)
+        self.decoder = nn.Linear(hidden_size, output_size)
         ##########       END      ##########
         
 
 
-    def forward(self, input, hidden):
+    def forward(self, input_, hidden):
         """
         Forward pass through RNN model. Use your Embedding object to create 
         an embedded input to your RNN network. You should then use the 
@@ -55,13 +61,14 @@ class RNN(nn.Module):
         """
         
         output = None
-        hidden = None
         
         ####################################
         #          YOUR CODE HERE          #
         ####################################
-
-        
+        batch_size = input_.size(0)
+        encoded = self.encoder(input_)
+        output, hidden = self.rnn(encoded.view(1, batch_size, -1), hidden)
+        output = self.decoder(output.view(batch_size, -1))
         ##########       END      ##########
         
         
@@ -85,8 +92,11 @@ class RNN(nn.Module):
         ####################################
         #          YOUR CODE HERE          #
         ####################################
-        
-
+        if self.model_type == "lstm":
+            hidden = (torch.zeros(self.n_layers, batch_size, self.hidden_size, requires_grad=True).to(device), 
+                      torch.zeros(self.n_layers, batch_size, self.hidden_size, requires_grad=True).to(device))
+        else:
+            hidden = torch.zeros(self.n_layers, batch_size, self.hidden_size, requires_grad=True).to(device)
         ##########       END      ##########
 
         return hidden
