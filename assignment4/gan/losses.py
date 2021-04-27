@@ -54,7 +54,7 @@ def generator_loss(logits_fake):
     ####################################
     logits_target = torch.ones_like(logits_fake, requires_grad=True)
 
-    return bce_loss(input=logits_fake, target=logits_target, reduction='mean')
+    loss = bce_loss(input=logits_fake, target=logits_target, reduction='mean')
     ##########       END      ##########
     
     return loss
