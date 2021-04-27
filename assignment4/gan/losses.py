@@ -19,7 +19,7 @@ def discriminator_loss(logits_real, logits_fake):
     """
     
     loss = None
-    zeros = torch.zeros_like(logits_fake, requires_grad=True).detach()
+    zeros = torch.zeros_like(logits_fake, requires_grad=True)
     ones = torch.ones_like(logits_real, requires_grad=True)
     ####################################
     #          YOUR CODE HERE          #

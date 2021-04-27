@@ -6,3 +6,5 @@
 *.json
 *.pth
 assignment3/part2/checkpoints/best_detector.pth
+assignment4/.ipynb_checkpoints/MP4_P2_classification-checkpoint.ipynb
+assignment4/.ipynb_checkpoints/MP4_P2_generation-checkpoint.ipynb

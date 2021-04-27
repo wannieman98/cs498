@@ -67,7 +67,7 @@ class RNN(nn.Module):
         ####################################
         batch_size = input_.size(0)
         encoded = self.encoder(input_)
-        output, hidden = self.rnn(encoded.view(1, batch_size, -1), hidden)
+        output, hidden = self.rnn(encoded.view(self.n_layers, batch_size, -1), hidden)
         output = self.decoder(output.view(batch_size, -1))
         ##########       END      ##########
         
