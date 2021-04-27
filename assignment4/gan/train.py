@@ -86,8 +86,6 @@ def train(D, G, D_solver, G_solver, discriminator_loss, generator_loss, show_eve
             ##########       END      ##########
             
             # Logging and output visualization
-            if iter_count % 100 == 0:
-              print(iter_count)
             if (iter_count % show_every == 0):
                 print('Iter: {}, D: {:.4}, G:{:.4}'.format(iter_count,d_error.item(),g_error.item()))
                 disp_fake_images = deprocess_img(fake_images.data)  # denormalize
