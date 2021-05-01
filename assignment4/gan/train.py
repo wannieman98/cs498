@@ -64,9 +64,7 @@ def train(D, G, D_solver, G_solver, discriminator_loss, generator_loss, show_eve
             
             D_solver.zero_grad()
             output_real = D(real_images)
-            fake_images = G(sample_noise_.unsqueeze(-1).unsqueeze(-1))
-            fake_images.reshape(batch_size * input_channels * img_size * img_size)
-            fake_images.detach()
+            fake_images = G(sample_noise_).detach().view(batch_size, input_channels, img_size, img_size)
             output_fake1 = D(fake_images)
             d_error = discriminator_loss(output_real, output_fake1)
             d_error.backward()
@@ -76,8 +74,7 @@ def train(D, G, D_solver, G_solver, discriminator_loss, generator_loss, show_eve
             sample_noise_ = sample_noise(batch_size=batch_size, dim=noise_size).requires_grad_(True).to(device)
 
             G_solver.zero_grad()
-            fake_images = G(sample_noise_.unsqueeze(-1).unsqueeze(-1))
-            fake_images.reshape(batch_size * input_channels * img_size * img_size)
+            fake_images = G(sample_noise_).view(batch_size, input_channels, img_size, img_size)
             output_fake2 = D(fake_images)
             g_error = generator_loss(output_fake2)
             g_error.backward()
@@ -94,3 +91,4 @@ def train(D, G, D_solver, G_solver, discriminator_loss, generator_loss, show_eve
                 plt.show()
                 print()
             iter_count += 1
+    
