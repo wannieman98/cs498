@@ -45,13 +45,11 @@ class Agent():
         if np.random.rand() <= self.epsilon:
             ### CODE #### 
             # Choose a random action
-            a = np.random.rand(1, 3)
+            return torch.tensor([[random.randrange(self.action_size)]], device=device, dtype=torch.long)
         else:
             ### CODE ####
             # Choose the best action
-            a = self.policy_net(state.unsqueeze(0))
-
-        return np.argmax(a)
+            return self.policy_net(state).max(1)[1].view(1, 1).detach()
 
     # pick samples randomly from replay memory (with batch_size)
     def train_policy_net(self, frame):
@@ -59,7 +57,7 @@ class Agent():
             self.epsilon -= self.epsilon_decay
 
         mini_batch = self.memory.sample_mini_batch(frame)
-        mini_batch = np.array(mini_batch).transpose()
+        mini_batch = np.array(mini_batch, dtype=object).transpose()
 
         history = np.stack(mini_batch[0], axis=0)
         states = np.float32(history[:, :4, :, :]) / 255.
@@ -69,24 +67,34 @@ class Agent():
         rewards = list(mini_batch[2])
         rewards = torch.FloatTensor(rewards).cuda()
         next_states = np.float32(history[:, 1:, :, :]) / 255.
+        next_states = torch.from_numpy(next_states).cuda()
         dones = mini_batch[3] # checks if the game is over
-        musk = torch.tensor(list(map(int, dones==False)),dtype=torch.uint8)
+        musk = torch.tensor(list(map(int, dones==False)),dtype=torch.bool)
 
 
         # Compute Q(s_t, a), the Q-value of the current state
         ### CODE ####
-        
+        state_action_values = torch.gather(self.policy_net(states), 1, actions.view(-1, 1))
 
         # Compute Q function of next state
         ### CODE ####
+        next_state_values = torch.zeros(len(mini_batch[0]), device=device)
+        next_state_values[musk] = self.policy_net(next_states[musk]).max(1)[0].detach()
 
         # Find maximum Q-value of action at next state from policy net
         ### CODE ####
+        expected_state_action_values = (next_state_values * self.discount_factor) + rewards
 
         # Compute the Huber Loss
         ### CODE ####
+        criterion = nn.SmoothL1Loss()
+        loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
 
         # Optimize the model, .step() both the optimizer and the scheduler!
         ### CODE ####
-
-
+        self.optimizer.zero_grad()
+        loss.backward()
+        for param in self.policy_net.parameters():
+            param.grad.data.clamp_(-1, 1)
+        self.optimizer.step()
+        self.scheduler.step()
